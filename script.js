@@ -43,8 +43,15 @@ function cleanText(text) {
     text = text.replace(/<br\s*[/]?>/g, '\n');
     text = text.replace(/<[^>]*>/g, '');
     text = text.replace(/ {2,}/g, ' ');
-    text = text.replace(/\n{2,}/g, '\n\n');
+    text = text.replace(/\n{2,}/g, '\n');
     text = unescapeHTML(text);
+    
+    // Additional cleanup for whitespace
+    text = text.split('\n')
+              .map(line => line.trim())
+              .filter(line => line.length > 0)
+              .join('\n');
+    text = text.replace(/^\n+|\n+$/g, '');
 
     return text;
 }
