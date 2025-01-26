@@ -105,14 +105,14 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
 
     for (let i = startingIndex; i < episodeLinks.length; i++) {
         const episodeUrl = episodeLinks[i];
-        const episodeNumber = startEpisode + (i - startingIndex);
+        const episodeNumber = i + 1;
 
         if (!episodeUrl.startsWith('https://booktoki')) {
             console.log(`Skipping invalid episode link: ${episodeUrl}`);
             continue;
         }
 
-        console.log(`Downloading: ${title} - Episode ${episodeNumber}/${totalEpisodes}`);
+        console.log(`Downloading: ${title} - Episode ${episodeNumber}/${episodeLinks.length}`);
 
         let episodeContent = await fetchNovelContent(episodeUrl);
 
