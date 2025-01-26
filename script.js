@@ -1,23 +1,22 @@
 async function fetchNovelContent(url) {
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const html = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const content = doc.querySelector('#novel_content');
+    const response = await fetch(url);
 
-        if (!content) {
-            throw new Error('Novel content element not found');
-        }
-
-        return cleanText(content.innerHTML);
-    } catch (error) {
-        console.error(`Failed to fetch content: ${error.message}`);
+    if (!response.ok) {
+        console.error(`Failed to fetch content from ${url}. Status: ${response.status}`);
         return null;
     }
+
+    const html = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const content = doc.querySelector('#novel_content');
+
+    if (!content) {
+        console.error(`Failed to find '#novel_content' element on the page: ${url}`);
+        return null;
+    }
+
+    return cleanText(content.innerHTML);
 }
 
 function unescapeHTML(text) {
@@ -28,283 +27,217 @@ function unescapeHTML(text) {
         '&lsquo;': '‘', '&rsquo;': '’', '&ldquo;': '“', '&rdquo;': '”'
     };
 
-    return text.replace(/&[^;]+;/g, (match) => entities[match] || match);
+    Object.entries(entities).forEach(([entity, replacement]) => {
+        const regex = new RegExp(entity, 'g');
+        text = text.replace(regex, replacement);
+    });
+
+    return text;
 }
 
 function cleanText(text) {
-    return text
-        .replace(/<[^>]*>/g, '\n')
-        .replace(/&#?\w+;/g, unescapeHTML)
-        .replace(/(\r\n|\n|\r){2,}/g, '\n')
-        .replace(/ +/g, ' ')
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
-        .join('\n')
-        .trim();
+    text = text.replace(/<div>/g, '');
+    text = text.replace(/<\/div>/g, '');
+    text = text.replace(/<p>/g, '\n');
+    text = text.replace(/<\/p>/g, '\n');
+    text = text.replace(/<br\s*[/]?>/g, '\n');
+    text = text.replace(/<[^>]*>/g, '');
+    text = text.replace(/ {2,}/g, ' ');
+    text = text.replace(/\n{2,}/g, '\n');
+    text = unescapeHTML(text);
+    
+    // Additional cleanup for whitespace
+    text = text.split('\n')
+              .map(line => line.trim())
+              .filter(line => line.length > 0)
+              .join('\n');
+    text = text.replace(/^\n+|\n+$/g, '');
+
+    return text;
 }
 
-function createProgressModal() {
+function createModal() {
     const modal = document.createElement('div');
-    modal.style.cssText = `
-        position: fixed;
-        z-index: 1000;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: 100%;
-        overflow: auto;
-        background-color: rgba(0,0,0,0.4);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    `;
+    modal.id = 'downloadProgressModal';
+    modal.style.display = 'block';
+    modal.style.position = 'fixed';
+    modal.style.zIndex = '1';
+    modal.style.left = '0';
+    modal.style.top = '0';
+    modal.style.width = '100%';
+    modal.style.height = '100%';
+    modal.style.overflow = 'auto';
+    modal.style.backgroundColor = 'rgba(0,0,0,0.4)';
 
     const modalContent = document.createElement('div');
-    modalContent.style.cssText = `
-        background-color: #fff;
-        padding: 20px;
-        border-radius: 8px;
-        width: 80%;
-        max-width: 500px;
-        text-align: center;
-    `;
+    modalContent.style.backgroundColor = '#fefefe';
+    modalContent.style.position = 'relative';
+    modalContent.style.margin = '15% auto 0';
+    modalContent.style.padding = '20px';
+    modalContent.style.border = '1px solid #888';
+    modalContent.style.width = '50%';
+    modalContent.style.textAlign = 'center';
 
-    const title = document.createElement('h3');
-    title.textContent = 'Download Progress';
-    modalContent.appendChild(title);
-
-    const progressBarContainer = document.createElement('div');
-    progressBarContainer.style.cssText = `
-        background-color: #ddd;
-        border-radius: 4px;
-        height: 20px;
-        margin: 10px 0;
-    `;
-
-    const progressBar = document.createElement('div');
-    progressBar.style.cssText = `
-        width: 0%;
-        height: 100%;
-        background-color: #4CAF50;
-        border-radius: 4px;
-        transition: width 0.3s ease;
-    `;
-    progressBarContainer.appendChild(progressBar);
-
-    const statusText = document.createElement('div');
-    statusText.style.margin = '10px 0';
-    statusText.textContent = 'Initializing...';
-
-    const timeRemaining = document.createElement('div');
-    timeRemaining.style.color = '#666';
-
-    modalContent.appendChild(progressBarContainer);
-    modalContent.appendChild(statusText);
-    modalContent.appendChild(timeRemaining);
     modal.appendChild(modalContent);
 
-    return {
-        modal,
-        updateProgress: (percentage, current, total, remaining) => {
-            progressBar.style.width = `${percentage}%`;
-            statusText.textContent = `Processing chapter ${current} of ${total}`;
-            timeRemaining.textContent = `Estimated time remaining: ${remaining}`;
-        },
-        showMessage: (message) => {
-            statusText.textContent = message;
-        }
-    };
+    return {modal, modalContent};
 }
 
 async function downloadNovel(title, episodeLinks, startEpisode) {
-    const { modal, updateProgress, showMessage } = createProgressModal();
+    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const {modal, modalContent} = createModal();
     document.body.appendChild(modal);
 
-    try {
-        showMessage('Please select a download folder...');
-        const directoryHandle = await window.showDirectoryPicker({
-            startIn: 'downloads',
-            mode: 'readwrite'
-        });
+    const progressBar = document.createElement('div');
+    progressBar.style.width = '0%';
+    progressBar.style.height = '10px';
+    progressBar.style.backgroundColor = '#008CBA';
+    progressBar.style.marginTop = '10px';
+    progressBar.style.borderRadius = '3px';
+    modalContent.appendChild(progressBar);
 
-        const totalChapters = episodeLinks.length - startEpisode + 1;
-        const startTime = Date.now();
-        let completed = 0;
+    const progressLabel = document.createElement('div');
+    progressLabel.style.marginTop = '5px';
+    modalContent.appendChild(progressLabel);
 
-        for (let i = episodeLinks.length - startEpisode; i >= 0; i--) {
-            const episodeNumber = startEpisode + completed;
-            const episodeUrl = episodeLinks[i];
-            
-            try {
-                updateProgress(
-                    (completed / totalChapters) * 100,
-                    completed + 1,
-                    totalChapters,
-                    calculateTimeRemaining(startTime, completed, totalChapters)
-                );
+    const startTime = new Date();
+    const startingIndex = episodeLinks.length - startEpisode;
 
-                showMessage(`Downloading chapter ${episodeNumber}...`);
-                let content = await fetchNovelContent(episodeUrl);
+    for (let i = startingIndex; i >= 0; i--) {
+        const episodeUrl = episodeLinks[i];
+        const episodeNumber = startingIndex - i + 1;
 
-                if (!content) {
-                    showMessage(`CAPTCHA required for chapter ${episodeNumber}`);
-                    const solved = await handleCaptcha(episodeUrl);
-                    if (solved) content = await fetchNovelContent(episodeUrl);
+        if (!episodeUrl.startsWith('https://booktoki')) {
+            console.log(`Skipping invalid episode link: ${episodeUrl}`);
+            continue;
+        }
+
+        console.log(`Downloading: ${title} - Episode ${episodeNumber}/${startingIndex + 1}`);
+
+        let episodeContent = await fetchNovelContent(episodeUrl);
+
+        if (!episodeContent) {
+            console.error(`Failed to fetch content for episode: ${episodeUrl}`);
+            const userConfirmed = await new Promise(resolve => {
+                const confirmResult = confirm(`CAPTCHA detected on page!\n${episodeUrl}\nPlease solve the CAPTCHA in a new tab and click OK to continue.`);
+                resolve(confirmResult);
+            });
+
+            if (userConfirmed) {
+                episodeContent = await fetchNovelContent(episodeUrl);
+                if (!episodeContent) {
+                    console.error(`Failed to fetch content after CAPTCHA: ${episodeUrl}`);
+                    continue;
                 }
-
-                if (content) {
-                    showMessage(`Saving chapter ${episodeNumber}...`);
-                    await saveChapter(directoryHandle, title, episodeNumber, content);
-                    completed++;
-                } else {
-                    showMessage(`Skipping chapter ${episodeNumber}...`);
-                }
-
-                await new Promise(resolve => setTimeout(resolve, 500));
-            } catch (error) {
-                console.error(`Error processing chapter ${episodeNumber}: ${error.message}`);
-                showMessage(`Error with chapter ${episodeNumber}: ${error.message}`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
+            } else {
+                console.log("Download cancelled by user. Skipping this episode.");
+                continue;
             }
         }
 
-        showMessage('Download complete!');
-        setTimeout(() => document.body.removeChild(modal), 2000);
-        alert('All chapters downloaded successfully!');
+        // Create and download individual TXT file
+        const fileName = `${title} - Episode ${episodeNumber}.txt`;
+        const blob = new Blob([episodeContent], {type: 'text/plain'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
 
-    } catch (error) {
-        console.error(`Download failed: ${error.message}`);
-        showMessage(`Download failed: ${error.message}`);
-        setTimeout(() => document.body.removeChild(modal), 5000);
+        // Update progress
+        const progress = (episodeNumber / (startingIndex + 1)) * 100;
+        progressBar.style.width = `${progress}%`;
+
+        const elapsedTime = new Date() - startTime;
+        const estimatedTotalTime = (elapsedTime / progress) * 100;
+        const remainingTime = estimatedTotalTime - elapsedTime;
+        const remainingMinutes = Math.floor(remainingTime / (1000 * 60));
+        const remainingSeconds = Math.floor((remainingTime % (1000 * 60)) / 1000);
+
+        progressLabel.textContent = `Downloading... ${progress.toFixed(2)}% - Time remaining: ${remainingMinutes}m ${remainingSeconds}s`;
+
+        await delay(Math.random() * 500 + 1000);
     }
-}
 
-async function handleCaptcha(url) {
-    const result = confirm(`CAPTCHA detected!\nPlease solve it in the new tab and click OK.\nOpen ${url} now?`);
-    if (result) window.open(url, '_blank');
-    return result;
-}
-
-async function saveChapter(directoryHandle, title, number, content) {
-    try {
-        const fileName = `${title} - Chapter ${number}.txt`;
-        const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(content);
-        await writable.close();
-    } catch (error) {
-        throw new Error(`Failed to save chapter ${number}: ${error.message}`);
-    }
-}
-
-function calculateTimeRemaining(startTime, completed, total) {
-    const elapsed = Date.now() - startTime;
-    const rate = elapsed / (completed || 1);
-    const remaining = Math.round((total - completed) * rate / 1000);
-    
-    const minutes = Math.floor(remaining / 60);
-    const seconds = remaining % 60;
-    return `${minutes}m ${seconds}s`;
+    document.body.removeChild(modal);
+    console.log('All chapters downloaded successfully!');
 }
 
 function extractTitle() {
-    try {
-        const titleElement = document.querySelector('#content_wrapper > div:nth-child(1) > span');
-        return titleElement ? titleElement.textContent.trim() : 'Unknown Title';
-    } catch (error) {
-        console.error('Title extraction failed:', error);
-        return 'Unknown Title';
-    }
+    const titleElement = document.evaluate('//*[@id="content_wrapper"]/div[1]/span', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    return titleElement ? titleElement.textContent.trim() : null;
 }
 
 function extractEpisodeLinks() {
-    try {
-        return Array.from(document.querySelectorAll('.item-subject'))
-                   .map(link => link.getAttribute('href'))
-                   .filter(url => url.startsWith('https://booktoki'));
-    } catch (error) {
-        console.error('Episode link extraction failed:', error);
-        return [];
-    }
-}
+    const episodeLinks = [];
+    const links = document.querySelectorAll('.item-subject');
 
-async function fetchPage(url) {
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const html = await response.text();
-        const parser = new DOMParser();
-        return parser.parseFromString(html, 'text/html');
-    } catch (error) {
-        console.error(`Failed to fetch page ${url}:`, error);
-        return null;
-    }
-}
+    links.forEach(link => {
+        const episodeLink = link.getAttribute('href');
+        episodeLinks.push(episodeLink);
+    });
 
-function createStartButton() {
-    const btn = document.createElement('button');
-    btn.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 9999;
-        padding: 15px 30px;
-        background: #4CAF50;
-        color: white;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        font-size: 16px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-    `;
-    btn.textContent = 'Start Novel Download';
-    btn.onclick = async () => {
-        btn.remove();
-        if (!window.location.href.startsWith('https://booktoki')) {
-            alert('Please run this on a Booktoki novel page');
-            return;
-        }
-
-        try {
-            const title = extractTitle();
-            const totalPages = prompt('Enter total episode list pages:', '1');
-            const episodeLinks = await gatherEpisodeLinks(totalPages);
-            
-            const startEpisode = prompt(`Start from episode (1-${episodeLinks.length}):`, '1');
-            if (!startEpisode || startEpisode < 1 || startEpisode > episodeLinks.length) {
-                alert('Invalid starting episode');
-                return;
-            }
-
-            downloadNovel(title, episodeLinks, parseInt(startEpisode));
-        } catch (error) {
-            alert(`Initialization failed: ${error.message}`);
-        }
-    };
-    document.body.appendChild(btn);
-}
-
-async function gatherEpisodeLinks(totalPages) {
-    const pages = parseInt(totalPages, 10) || 1;
-    let episodeLinks = [];
-    
-    for (let page = 1; page <= pages; page++) {
-        const pageUrl = `${window.location.href.split('?')[0]}?spage=${page}`;
-        const doc = await fetchPage(pageUrl);
-        if (doc) {
-            const links = Array.from(doc.querySelectorAll('.item-subject'))
-                             .map(link => link.getAttribute('href'));
-            episodeLinks.push(...links);
-        }
-    }
-    
-    if (episodeLinks.length === 0) {
-        throw new Error('No episode links found');
-    }
-    
     return episodeLinks;
 }
 
-// Initialize the download button
-createStartButton();
+async function fetchPage(url) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        console.error(`Failed to fetch page: ${url}. Status: ${response.status}`);
+        return null;
+    }
+    const html = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    return doc;
+}
+
+async function runCrawler() {
+    const novelPageRule = 'https://booktoki';
+    let currentUrl = window.location.href.split('?')[0];
+
+    if (!currentUrl.startsWith(novelPageRule)) {
+        console.log('This script should be run on the novel episode list page.');
+        return;
+    }
+
+    const title = extractTitle();
+    if (!title) {
+        console.log('Failed to extract the novel title.');
+        return;
+    }
+
+    const totalPages = prompt(`Enter the number of pages in the episode list:\n(Enter 1 if less than 1000 episodes, 2 or more for 1000+ episodes)`, '1');
+    if (!totalPages || isNaN(totalPages)) {
+        console.log('Invalid page number or input cancelled.');
+        return;
+    }
+
+    const totalPagesNumber = parseInt(totalPages, 10);
+    const allEpisodeLinks = [];
+
+    for (let page = 1; page <= totalPagesNumber; page++) {
+        const nextPageUrl = `${currentUrl}?spage=${page}`;
+        const nextPageDoc = await fetchPage(nextPageUrl);
+        if (nextPageDoc) {
+            const nextPageLinks = Array.from(nextPageDoc.querySelectorAll('.item-subject')).map(link => link.getAttribute('href'));
+            allEpisodeLinks.push(...nextPageLinks);
+        }
+    }
+
+    const startEpisode = prompt(`Enter the starting episode number (1 to ${allEpisodeLinks.length}):`, '1');
+    if (!startEpisode || isNaN(startEpisode)) {
+        console.log('Invalid episode number or input cancelled.');
+        return;
+    }
+
+    const startEpisodeNumber = parseInt(startEpisode, 10);
+    if (startEpisodeNumber < 1 || startEpisodeNumber > allEpisodeLinks.length) {
+        console.log('Invalid episode number. Please enter a number between 1 and the total number of episodes.');
+        return;
+    }
+
+    console.log(`Starting download: ${title} from episode ${startEpisodeNumber}`);
+    downloadNovel(title, allEpisodeLinks, startEpisodeNumber);
+}
+
+runCrawler();
