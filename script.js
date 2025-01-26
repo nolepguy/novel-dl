@@ -169,10 +169,11 @@ function extractEpisodeLinks() {
     const episodeLinks = [];
     const links = document.querySelectorAll('.item-subject');
 
-    links.forEach(link => {
-        const episodeLink = link.getAttribute('href');
+    // Reverse the order to get oldest first
+    for (let i = links.length - 1; i >= 0; i--) {
+        const episodeLink = links[i].getAttribute('href');
         episodeLinks.push(episodeLink);
-    });
+    }
 
     return episodeLinks;
 }
@@ -217,8 +218,10 @@ async function runCrawler() {
         const nextPageUrl = `${currentUrl}?spage=${page}`;
         const nextPageDoc = await fetchPage(nextPageUrl);
         if (nextPageDoc) {
-            const nextPageLinks = Array.from(nextPageDoc.querySelectorAll('.item-subject')).map(link => link.getAttribute('href'));
-            allEpisodeLinks.push(...nextPageLinks);
+            const nextPageLinks = Array.from(nextPageDoc.querySelectorAll('.item-subject'))
+                                      .map(link => link.getAttribute('href'));
+            // Reverse links from each page before adding to array
+            allEpisodeLinks.push(...Array.from(nextPageLinks).reverse());
         }
     }
 
