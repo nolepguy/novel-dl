@@ -46,7 +46,6 @@ function cleanText(text) {
     text = text.replace(/\n{2,}/g, '\n');
     text = unescapeHTML(text);
     
-    // Additional cleanup for whitespace
     text = text.split('\n')
               .map(line => line.trim())
               .filter(line => line.length > 0)
@@ -101,18 +100,19 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
     modalContent.appendChild(progressLabel);
 
     const startTime = new Date();
-    const startingIndex = episodeLinks.length - startEpisode;
+    const startingIndex = startEpisode - 1;
+    const totalEpisodes = episodeLinks.length - startingIndex;
 
-    for (let i = startingIndex; i >= 0; i--) {
+    for (let i = startingIndex; i < episodeLinks.length; i++) {
         const episodeUrl = episodeLinks[i];
-        const episodeNumber = startingIndex - i + 1;
+        const episodeNumber = startEpisode + (i - startingIndex);
 
         if (!episodeUrl.startsWith('https://booktoki')) {
             console.log(`Skipping invalid episode link: ${episodeUrl}`);
             continue;
         }
 
-        console.log(`Downloading: ${title} - Episode ${episodeNumber}/${startingIndex + 1}`);
+        console.log(`Downloading: ${title} - Episode ${episodeNumber}/${totalEpisodes}`);
 
         let episodeContent = await fetchNovelContent(episodeUrl);
 
@@ -135,7 +135,6 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
             }
         }
 
-        // Create and download individual TXT file
         const fileName = `${title} - Episode ${episodeNumber}.txt`;
         const blob = new Blob([episodeContent], {type: 'text/plain'});
         const a = document.createElement('a');
@@ -143,12 +142,11 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
         a.download = fileName;
         a.click();
 
-        // Update progress
-        const progress = (episodeNumber / (startingIndex + 1)) * 100;
+        const progress = ((i - startingIndex + 1) / totalEpisodes) * 100;
         progressBar.style.width = `${progress}%`;
 
         const elapsedTime = new Date() - startTime;
-        const estimatedTotalTime = (elapsedTime / progress) * 100;
+        const estimatedTotalTime = (elapsedTime / (i - startingIndex + 1)) * totalEpisodes;
         const remainingTime = estimatedTotalTime - elapsedTime;
         const remainingMinutes = Math.floor(remainingTime / (1000 * 60));
         const remainingSeconds = Math.floor((remainingTime % (1000 * 60)) / 1000);
