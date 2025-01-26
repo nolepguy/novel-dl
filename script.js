@@ -169,11 +169,11 @@ function extractEpisodeLinks() {
     const episodeLinks = [];
     const links = document.querySelectorAll('.item-subject');
 
-    // Reverse the order to get oldest first
-    for (let i = links.length - 1; i >= 0; i--) {
-        const episodeLink = links[i].getAttribute('href');
+    // Collect in natural order (newest first)
+    links.forEach(link => {
+        const episodeLink = link.getAttribute('href');
         episodeLinks.push(episodeLink);
-    }
+    });
 
     return episodeLinks;
 }
@@ -214,14 +214,15 @@ async function runCrawler() {
     const totalPagesNumber = parseInt(totalPages, 10);
     const allEpisodeLinks = [];
 
-    for (let page = 1; page <= totalPagesNumber; page++) {
+    // Process pages in reverse order and reverse each page's links
+    for (let page = totalPagesNumber; page >= 1; page--) {
         const nextPageUrl = `${currentUrl}?spage=${page}`;
         const nextPageDoc = await fetchPage(nextPageUrl);
         if (nextPageDoc) {
             const nextPageLinks = Array.from(nextPageDoc.querySelectorAll('.item-subject'))
                                       .map(link => link.getAttribute('href'));
-            // Reverse links from each page before adding to array
-            allEpisodeLinks.push(...Array.from(nextPageLinks).reverse());
+            // Reverse to get chronological order for this page
+            allEpisodeLinks.push(...nextPageLinks.reverse());
         }
     }
 
