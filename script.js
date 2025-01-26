@@ -242,47 +242,69 @@ async function fetchPage(url) {
     }
 }
 
-async function runCrawler() {
-    if (!window.location.href.startsWith('https://booktoki')) {
-        alert('Please run this script on a Booktoki novel page');
-        return;
-    }
+function createStartButton() {
+    const btn = document.createElement('button');
+    btn.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        padding: 15px 30px;
+        background: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    `;
+    btn.textContent = 'Start Novel Download';
+    btn.onclick = async () => {
+        btn.remove();
+        if (!window.location.href.startsWith('https://booktoki')) {
+            alert('Please run this on a Booktoki novel page');
+            return;
+        }
 
-    try {
-        const title = extractTitle();
-        const totalPages = prompt('Enter total number of episode list pages:', '1');
-        const pages = parseInt(totalPages, 10) || 1;
-        
-        // Gather all episode links
-        let episodeLinks = [];
-        for (let page = 1; page <= pages; page++) {
-            const pageUrl = `${window.location.href.split('?')[0]}?spage=${page}`;
-            const doc = await fetchPage(pageUrl);
-            if (doc) {
-                const links = Array.from(doc.querySelectorAll('.item-subject'))
-                                 .map(link => link.getAttribute('href'));
-                episodeLinks.push(...links);
+        try {
+            const title = extractTitle();
+            const totalPages = prompt('Enter total episode list pages:', '1');
+            const episodeLinks = await gatherEpisodeLinks(totalPages);
+            
+            const startEpisode = prompt(`Start from episode (1-${episodeLinks.length}):`, '1');
+            if (!startEpisode || startEpisode < 1 || startEpisode > episodeLinks.length) {
+                alert('Invalid starting episode');
+                return;
             }
-        }
 
-        if (episodeLinks.length === 0) {
-            alert('No episode links found');
-            return;
+            downloadNovel(title, episodeLinks, parseInt(startEpisode));
+        } catch (error) {
+            alert(`Initialization failed: ${error.message}`);
         }
-
-        const startEpisode = prompt(`Enter starting episode (1-${episodeLinks.length}):`, '1');
-        const start = parseInt(startEpisode, 10);
-        
-        if (!start || start < 1 || start > episodeLinks.length) {
-            alert('Invalid starting episode');
-            return;
-        }
-
-        downloadNovel(title, episodeLinks, start);
-    } catch (error) {
-        alert(`Initialization failed: ${error.message}`);
-    }
+    };
+    document.body.appendChild(btn);
 }
 
-// Start the crawler
-runCrawler();
+async function gatherEpisodeLinks(totalPages) {
+    const pages = parseInt(totalPages, 10) || 1;
+    let episodeLinks = [];
+    
+    for (let page = 1; page <= pages; page++) {
+        const pageUrl = `${window.location.href.split('?')[0]}?spage=${page}`;
+        const doc = await fetchPage(pageUrl);
+        if (doc) {
+            const links = Array.from(doc.querySelectorAll('.item-subject'))
+                             .map(link => link.getAttribute('href'));
+            episodeLinks.push(...links);
+        }
+    }
+    
+    if (episodeLinks.length === 0) {
+        throw new Error('No episode links found');
+    }
+    
+    return episodeLinks;
+}
+
+// Initialize the download button
+createStartButton();
