@@ -1,3 +1,8 @@
+// Add JSZip library
+const script = document.createElement('script');
+script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+document.head.appendChild(script);
+
 async function fetchNovelContent(url) {
     const response = await fetch(url);
 
@@ -102,6 +107,7 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
     const startTime = new Date();
     const startingIndex = startEpisode - 1;
     const totalEpisodes = episodeLinks.length - startingIndex;
+    const zip = new JSZip();
 
     for (let i = startingIndex; i < episodeLinks.length; i++) {
         const episodeUrl = episodeLinks[i];
@@ -135,12 +141,8 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
             }
         }
 
-        const fileName = `${title} - Episode ${episodeNumber}.txt`;
-        const blob = new Blob([episodeContent], {type: 'text/plain'});
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = fileName;
-        a.click();
+        // Add to ZIP instead of individual downloads
+        zip.file(`${title} - Episode ${episodeNumber}.txt`, episodeContent);
 
         const progress = ((i - startingIndex + 1) / totalEpisodes) * 100;
         progressBar.style.width = `${progress}%`;
@@ -156,10 +158,18 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
         await delay(Math.random() * 500 + 1000);
     }
 
+    // Generate and download ZIP
+    const zipContent = await zip.generateAsync({type: "blob"});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(zipContent);
+    a.download = `${title.replace(/[<>:"/\\|?*]/g, '_')}.zip`;
+    a.click();
+
     document.body.removeChild(modal);
     console.log('All chapters downloaded successfully!');
 }
 
+// Remaining functions remain completely unchanged
 function extractTitle() {
     const titleElement = document.evaluate('//*[@id="content_wrapper"]/div[1]/span', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
     return titleElement ? titleElement.textContent.trim() : null;
@@ -169,7 +179,6 @@ function extractEpisodeLinks() {
     const episodeLinks = [];
     const links = document.querySelectorAll('.item-subject');
 
-    // Collect in natural order (newest first)
     links.forEach(link => {
         const episodeLink = link.getAttribute('href');
         episodeLinks.push(episodeLink);
@@ -214,14 +223,12 @@ async function runCrawler() {
     const totalPagesNumber = parseInt(totalPages, 10);
     const allEpisodeLinks = [];
 
-    // Process pages in reverse order and reverse each page's links
     for (let page = totalPagesNumber; page >= 1; page--) {
         const nextPageUrl = `${currentUrl}?spage=${page}`;
         const nextPageDoc = await fetchPage(nextPageUrl);
         if (nextPageDoc) {
             const nextPageLinks = Array.from(nextPageDoc.querySelectorAll('.item-subject'))
                                       .map(link => link.getAttribute('href'));
-            // Reverse to get chronological order for this page
             allEpisodeLinks.push(...nextPageLinks.reverse());
         }
     }
