@@ -77,7 +77,6 @@ function createModal() {
 }
 
 async function downloadNovel(title, episodeLinks, startEpisode) {
-    let novelText = `${title}\n\nDownloaded with novel-dl,\nhttps://github.com/yeorinhieut/novel-dl\n`;
     const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     const {modal, modalContent} = createModal();
     document.body.appendChild(modal);
@@ -99,34 +98,29 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
 
     for (let i = startingIndex; i >= 0; i--) {
         const episodeUrl = episodeLinks[i];
+        const episodeNumber = startingIndex - i + 1;
 
         if (!episodeUrl.startsWith('https://booktoki')) {
             console.log(`Skipping invalid episode link: ${episodeUrl}`);
             continue;
         }
 
-        const logText = `Downloading: ${title} - Episode ${startingIndex - i + 1}/${startingIndex + 1}`;
-        console.log(logText);
+        console.log(`Downloading: ${title} - Episode ${episodeNumber}/${startingIndex + 1}`);
 
         let episodeContent = await fetchNovelContent(episodeUrl);
 
         if (!episodeContent) {
             console.error(`Failed to fetch content for episode: ${episodeUrl}`);
-
-            // Ask the user to solve the CAPTCHA
             const userConfirmed = await new Promise(resolve => {
-                const confirmResult = confirm(`이 페이지에 캡챠가 발견되었습니다.
-${episodeUrl}.
-새 탭에서 해당 페이지에 접속하여 캡챠를 풀고, 확인을 눌러주세요.`);
+                const confirmResult = confirm(`이 페이지에 캡챠가 발견되었습니다.\n${episodeUrl}.\n새 탭에서 해당 페이지에 접속하여 캡챠를 풀고, 확인을 눌러주세요.`);
                 resolve(confirmResult);
             });
 
             if (userConfirmed) {
-                // Retry fetching the content
                 episodeContent = await fetchNovelContent(episodeUrl);
                 if (!episodeContent) {
-                    console.error(`Failed to fetch content for episode after CAPTCHA: ${episodeUrl}`);
-                    continue;  // Skip this episode if it still fails
+                    console.error(`Failed to fetch content after CAPTCHA: ${episodeUrl}`);
+                    continue;
                 }
             } else {
                 console.log("User cancelled. Skipping this episode.");
@@ -134,9 +128,16 @@ ${episodeUrl}.
             }
         }
 
-        novelText += episodeContent;
+        // Create and download individual TXT file
+        const fileName = `${title} - Episode ${episodeNumber}.txt`;
+        const blob = new Blob([episodeContent], {type: 'text/plain'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
 
-        const progress = ((startingIndex - i + 1) / (startingIndex + 1)) * 100;
+        // Update progress
+        const progress = (episodeNumber / (startingIndex + 1)) * 100;
         progressBar.style.width = `${progress}%`;
 
         const elapsedTime = new Date() - startTime;
@@ -151,13 +152,7 @@ ${episodeUrl}.
     }
 
     document.body.removeChild(modal);
-
-    const fileName = `${title}(${startEpisode}~${episodeLinks.length}).txt`;
-    const blob = new Blob([novelText], {type: 'text/plain'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = fileName;
-    a.click();
+    console.log('All chapters downloaded successfully!');
 }
 
 function extractTitle() {
@@ -191,11 +186,7 @@ async function fetchPage(url) {
 
 async function runCrawler() {
     const novelPageRule = 'https://booktoki';
-    let currentUrl = window.location.href;
-
-    // Clean URL
-    const urlParts = currentUrl.split('?')[0];
-    currentUrl = urlParts;
+    let currentUrl = window.location.href.split('?')[0];
 
     if (!currentUrl.startsWith(novelPageRule)) {
         console.log('This script should be run on the novel episode list page.');
@@ -203,15 +194,12 @@ async function runCrawler() {
     }
 
     const title = extractTitle();
-
     if (!title) {
         console.log('Failed to extract the novel title.');
         return;
     }
 
-    const totalPages = prompt(`소설 목록의 페이지 수를 입력하세요.
-(1000화가 넘지 않는 경우 1, 1000화 이상부터 2~)`, '1');
-
+    const totalPages = prompt(`소설 목록의 페이지 수를 입력하세요.\n(1000화가 넘지 않는 경우 1, 1000화 이상부터 2~)`, '1');
     if (!totalPages || isNaN(totalPages)) {
         console.log('Invalid page number or user canceled the input.');
         return;
@@ -230,21 +218,18 @@ async function runCrawler() {
     }
 
     const startEpisode = prompt(`다운로드를 시작할 회차 번호를 입력하세요 (1 부터 ${allEpisodeLinks.length}):`, '1');
-
     if (!startEpisode || isNaN(startEpisode)) {
         console.log('Invalid episode number or user canceled the input.');
         return;
     }
 
     const startEpisodeNumber = parseInt(startEpisode, 10);
-
     if (startEpisodeNumber < 1 || startEpisodeNumber > allEpisodeLinks.length) {
         console.log('Invalid episode number. Please enter a number between 1 and the total number of episodes.');
         return;
     }
 
     console.log(`Task Appended: Preparing to download ${title} starting from episode ${startEpisodeNumber}`);
-
     downloadNovel(title, allEpisodeLinks, startEpisodeNumber);
 }
 
