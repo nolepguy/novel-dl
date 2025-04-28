@@ -105,16 +105,25 @@ async function downloadNovel(title, episodeLinks, startEpisode) {
         let episodeContent = await fetchNovelContent(episodeUrl);
         if (!episodeContent) {
             console.error(`Failed to fetch content for episode: ${episodeUrl}`);
-            // Open a new tab with the CAPTCHA URL for the user to solve it
-            window.open(episodeUrl, '_blank');
             const userConfirmed = await new Promise(resolve => {
-                const confirmResult = confirm(`CAPTCHA detected on page!\n${episodeUrl}\nPlease solve the CAPTCHA in the new tab and click OK to continue.`);
+                const confirmResult = confirm(`CAPTCHA detected on page!\n${episodeUrl}\nClick OK to open the link in a new tab and solve the CAPTCHA, then return here and click OK again to continue.`);
                 resolve(confirmResult);
             });
             if (userConfirmed) {
-                episodeContent = await fetchNovelContent(episodeUrl);
-                if (!episodeContent) {
-                    console.error(`Failed to fetch content after CAPTCHA: ${episodeUrl}`);
+                // Open a new tab with the CAPTCHA URL only after user clicks OK
+                window.open(episodeUrl, '_blank');
+                const retryConfirmed = await new Promise(resolve => {
+                    const confirmResult = confirm(`Please solve the CAPTCHA in the new tab. Click OK to continue downloading after solving it.`);
+                    resolve(confirmResult);
+                });
+                if (retryConfirmed) {
+                    episodeContent = await fetchNovelContent(episodeUrl);
+                    if (!episodeContent) {
+                        console.error(`Failed to fetch content after CAPTCHA: ${episodeUrl}`);
+                        continue;
+                    }
+                } else {
+                    console.log("Download cancelled by user. Skipping this episode.");
                     continue;
                 }
             } else {
@@ -215,4 +224,3 @@ async function runCrawler() {
 }
 
 runCrawler();
-
